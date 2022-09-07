@@ -1,16 +1,44 @@
-# Setup MicroK8S
+# Setup MicroK8S on Ubuntu 22.04 Server
 
-## Grant auth to `admin`
+Hostname: ubuntu-microk8s
+IP: 192.168.101.135
+Username: ubuntu
+Password: ubuntu@123
+
+## Update
+
+Fetch latest software list and update Ubuntu
 
 ```
-sudo usermod -a -G microk8s admin
-sudo chown -f -R admin ~/.kube
+sudo apt-get update
+sudo apt-get upgrade
+sudo reboot
+```
 
+## Install Nano
+
+`sudo apt-get install nano`
+
+## Install
+
+`sudo snap install microk8s --classic --channel=latest/stable`
+
+## Grant auth to `ubuntu`
+
+```
+sudo usermod -a -G microk8s ubuntu
+sudo chown -f -R ubuntu ~/.kube
 newgrp microk8s
 ```
 
 Check microk8s status
 `microk8s status --wait-ready`
+
+## Enable Add-ons
+
+```
+microk8s enable dns ingress helm3 hostpath-storage host-access
+```
 
 ## Create permanent alias
 
@@ -21,45 +49,6 @@ Edit
 alias kubectl='microk8s.kubectl'
 alias helm='microk8s.helm3'
 ```
-
-## Enable Add-ons
-
-```
-microk8s enable dns ingress helm3 hostpath-storage host-access
-```
-
-## Configure Private Registry
-
-For internal registries where TLS with a custom CA is used (e.g. in enterprise environments), containerd will fail to fetch images unless the CA is explicitly specified.
-
-In our previous example, if the registry was instead at https://server.demo.com:8482, the configuration should be changed to the following:
-
-`sudo mkdir /var/snap/microk8s/current/args/certs.d/server.demo.com:8482`
-
-`sudo nano /var/snap/microk8s/current/args/certs.d/server.demo.com:8482/hosts.toml`
-
-```
-server = "https://server.demo.com:8482"
-
-[host."https://server.demo.com:8482"]
-capabilities = ["pull", "resolve"]
-ca = "/var/snap/microk8s/current/args/certs.d/server.demo.com:8482/ca.crt"
-```
-
-Add the CA certificate under /var/snap/microk8s/current/args/certs.d/server.demo.com:8482/ca.crt:
-`sudo cp ~/tmp/ca.crt /var/snap/microk8s/current/args/certs.d/server.demo.com:8482/ca.crt`
-
-Add the below section to bottom of /var/snap/microk8s/current/args/containerd-template.toml.
-
-`sudo nano /var/snap/microk8s/current/args/containerd-template.toml`
-
-```
-[plugins."io.containerd.grpc.v1.cri".registry.configs."server.demo.com:8482".auth]
-username = "admin"
-password = "admin@123"
-```
-
-`sudo snap restart microk8s`
 
 ## Setup NFS Server for PV
 
@@ -85,18 +74,18 @@ Restart nfs server
 ## Install CSI driver for NFS
 
 ```
-microk8s helm3 repo add csi-driver-nfs https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
-microk8s helm3 repo update
-microk8s helm3 install csi-driver-nfs csi-driver-nfs/csi-driver-nfs \
+helm repo add csi-driver-nfs https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
+helm repo update
+helm install csi-driver-nfs csi-driver-nfs/csi-driver-nfs \
     --namespace kube-system \
     --set kubeletDir=/var/snap/microk8s/common/var/lib/kubelet
 ```
 
 Wait for csi controller pod to startup.
-`microk8s kubectl wait pod --selector app.kubernetes.io/name=csi-driver-nfs --for condition=ready --namespace kube-system`
+`kubectl wait pod --selector app.kubernetes.io/name=csi-driver-nfs --for condition=ready --namespace kube-system`
 
 List available csi drivers.
-`microk8s kubectl get csidrivers`
+`kubectl get csidrivers`
 
 ```
 NAME             ATTACHREQUIRED   PODINFOONMOUNT   STORAGECAPACITY   TOKENREQUESTS   REQUIRESREPUBLISH   MODES        AGE
@@ -108,12 +97,10 @@ nfs.csi.k8s.io   false            false            false             <unset>    
 Edit `nfs-csi.yaml`
 
 ```
-mkdir /ktcmaai/nfs
-cd /ktcmaai/nfs
+mkdir -p /tmp/nfs
+cd /tmp/nfs
 nano nfs-csi.yaml
 ```
-
-Paste content
 
 ```
 apiVersion: storage.k8s.io/v1
@@ -122,7 +109,7 @@ metadata:
   name: nfs-csi
 provisioner: nfs.csi.k8s.io
 parameters:
-  server: 192.168.1.30
+  server: 192.168.101.135
   share: /srv/nfs
 reclaimPolicy: Retain
 volumeBindingMode: Immediate
@@ -132,4 +119,46 @@ mountOptions:
 ```
 
 Apply on kubernetes
-`microk8s kubectl apply -f - < nfs-csi.yaml`
+`kubectl apply -f nfs-csi.yaml`
+
+List all storage class
+`kubectl get sc`
+
+```
+NAME                          PROVISIONER            RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+microk8s-hostpath (default)   microk8s.io/hostpath   Delete          WaitForFirstConsumer   false                  8m11s
+nfs-csi                       nfs.csi.k8s.io         Retain          Immediate              false                  10s
+```
+
+## Configure Private Registry
+
+For internal registries where TLS with a custom CA is used (e.g. in enterprise environments), containerd will fail to fetch images unless the CA is explicitly specified.
+
+In our previous example, if the registry was instead at https://ubuntu-microk8s:8482, the configuration should be changed to the following:
+
+`sudo mkdir /var/snap/microk8s/current/args/certs.d/ubuntu-microk8s:8482`
+
+`sudo nano /var/snap/microk8s/current/args/certs.d/ubuntu-microk8s:8482/hosts.toml`
+
+```
+server = "https://ubuntu-microk8s:8482"
+
+[host."https://ubuntu-microk8s:8482"]
+capabilities = ["pull", "resolve"]
+ca = "/var/snap/microk8s/current/args/certs.d/ubuntu-microk8s:8482/ca.crt"
+```
+
+Add the CA certificate under /var/snap/microk8s/current/args/certs.d/ubuntu-microk8s:8482/ca.crt:
+`sudo cp ~/tmp/ca.crt /var/snap/microk8s/current/args/certs.d/ubuntu-microk8s:8482/ca.crt`
+
+Add the below section to bottom of /var/snap/microk8s/current/args/containerd-template.toml.
+
+`sudo nano /var/snap/microk8s/current/args/containerd-template.toml`
+
+```
+[plugins."io.containerd.grpc.v1.cri".registry.configs."ubuntu-microk8s:8482".auth]
+username = "ubuntu"
+password = "ubuntu@123"
+```
+
+`sudo snap restart microk8s`
